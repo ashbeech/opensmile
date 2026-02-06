@@ -18,16 +18,16 @@ if (process.env.ALLOW_SEEDING !== "true") {
 }
 
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY;
 
-if (!supabaseUrl || !supabaseServiceKey) {
+if (!supabaseUrl || !supabaseSecretKey) {
   console.error(
-    "SEED BLOCKED: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set"
+    "SEED BLOCKED: SUPABASE_URL and SUPABASE_SECRET_KEY must be set"
   );
   process.exit(1);
 }
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabase = createClient(supabaseUrl, supabaseSecretKey);
 
 async function main() {
   console.log("Starting seed...");

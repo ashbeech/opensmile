@@ -9,10 +9,22 @@ export async function createContext() {
 
   try {
     const supabase = await createSupabaseServerClient();
+    // getClaims() validates the JWT signature locally against published
+    // public keys — recommended over getUser() for server-side auth checks.
     const {
-      data: { user: authUser },
-    } = await supabase.auth.getUser();
-    user = authUser;
+      data: { claims },
+      error: claimsError,
+    } = await supabase.auth.getClaims();
+
+    if (claimsError || !claims?.sub) {
+      user = null;
+    } else {
+      // Retrieve the full User object for compatibility with downstream code
+      const {
+        data: { user: authUser },
+      } = await supabase.auth.getUser();
+      user = authUser;
+    }
 
     if (authUser) {
       // Find matching Prisma user - MUST match auth.uid()

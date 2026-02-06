@@ -61,8 +61,8 @@ See [.env.example](.env.example) for all required and optional environment varia
 
 - `DATABASE_URL` - PostgreSQL connection string
 - `NEXT_PUBLIC_SUPABASE_URL` - Supabase project URL
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` - Supabase anonymous key
-- `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key (server-only)
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` - Supabase publishable key (replaces legacy anon key)
+- `SUPABASE_SECRET_KEY` - Supabase secret key, server-only (replaces legacy service_role key)
 - `SUPABASE_URL` - Server-only Supabase URL alias
 
 ## Architecture
