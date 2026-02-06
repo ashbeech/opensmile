@@ -1,0 +1,1012 @@
+// prisma/schema.prisma
+// OpenSmile - Dental Practice Sales Dashboard
+// CRITICAL: This schema is deduplicated. Each model/enum appears exactly once.
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum PracticeStatus {
+  ACTIVE
+  PAUSED
+  CHURNED
+}
+
+enum SubscriptionTier {
+  STARTER
+  GROWTH
+  SCALE
+}
+
+enum LeadSource {
+  FACEBOOK_AD
+  INSTAGRAM_AD
+  GOOGLE_AD
+  REFERRAL
+  ORGANIC
+  MANUAL_ENTRY
+}
+
+enum LeadStatus {
+  ENQUIRY
+  NEW
+  CONTACTED
+  QUALIFIED
+  NURTURING
+  APPOINTMENT_BOOKED
+  CONSULTATION_COMPLETED
+  TREATMENT_STARTED
+  LOST
+  UNQUALIFIED
+}
+
+enum LostReason {
+  PRICE_TOO_HIGH
+  LOCATION_TOO_FAR
+  CHANGED_MIND
+  WENT_COMPETITOR
+  NO_RESPONSE
+  NOT_SERIOUS
+  OTHER
+}
+
+enum InteractionType {
+  CALL_OUTBOUND
+  CALL_INBOUND
+  EMAIL_SENT
+  EMAIL_RECEIVED
+  SMS_SENT
+  SMS_RECEIVED
+  NOTE
+  STATUS_CHANGE
+  APPOINTMENT_CREATED
+  APPOINTMENT_MODIFIED
+}
+
+enum CampaignPlatform {
+  FACEBOOK
+  INSTAGRAM
+  GOOGLE
+}
+
+enum CampaignStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+enum UserRole {
+  ADMIN
+  SALESPERSON
+  PRACTICE_OWNER
+  PRACTICE_STAFF
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  ATTENDED
+  CANCELLED
+  NO_SHOW
+}
+
+enum AppointmentType {
+  CONSULTATION
+  CHECKUP
+  CLEANING
+  EMERGENCY
+  FILLING
+  EXTRACTION
+  ROOT_CANAL
+  WHITENING
+  INVISALIGN
+  VENEERS
+  COMPOSITE_BONDING
+}
+
+enum CategoryType {
+  PREVENTIVE
+  RESTORATIVE
+  COSMETIC
+  SURGICAL
+  DIAGNOSTIC
+}
+
+enum InsuranceStatus {
+  PRIVATE
+  NHS
+  NONE
+}
+
+enum OnboardingStatus {
+  LEAD
+  QUALIFYING
+  ONBOARDING
+  LIVE
+  REJECTED
+}
+
+enum BillingModel {
+  PER_APPOINTMENT
+  MONTHLY_RETAINER
+  HYBRID
+}
+
+enum BillingTrigger {
+  ON_APPOINTMENT_BOOKED
+  ON_APPOINTMENT_ATTENDED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  DISPUTED
+  VOID
+}
+
+enum InvoiceLineItemType {
+  BOOKED_CONSULTATION
+  ATTENDED_CONSULTATION
+  MANUAL_ADJUSTMENT
+}
+
+enum SequenceStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum SequenceStepType {
+  SMS
+  EMAIL
+  WAIT
+  INTERNAL_TASK
+}
+
+enum SequenceTrigger {
+  ON_ENQUIRY_CREATED
+  ON_LEAD_QUALIFIED
+  ON_NO_CONTACT_AFTER_5_MIN
+  ON_NO_REPLY_AFTER_24_HOURS
+  ON_APPOINTMENT_BOOKED
+}
+
+enum NotificationType {
+  NEW_LEAD
+  LEAD_QUALIFIED
+  APPOINTMENT_BOOKED
+  APPOINTMENT_CONFIRMED
+  APPOINTMENT_NO_SHOW
+  SEQUENCE_REPLY
+  SPEED_TO_LEAD_ALERT
+}
+
+enum AppointmentConfirmationSource {
+  MANUAL_SALESPERSON
+  MANUAL_PRACTICE
+  DENTALLY_SYNC
+}
+
+enum MetaSyncStatus {
+  PENDING
+  SYNCED
+  FAILED
+}
+
+enum IntegrationType {
+  DENTALLY_PMS
+  META_ADS
+  SMS_PROVIDER
+  EMAIL_PROVIDER
+}
+
+enum IntegrationStatus {
+  DISCONNECTED
+  CONNECTED
+  ERROR
+  PAUSED
+}
+
+// ============================================
+// USER MANAGEMENT
+// ============================================
+
+model User {
+  id       String   @id // CRITICAL: Set to Supabase auth.uid(), NEVER @default(uuid())
+  email    String   @unique
+  fullName String
+  role     UserRole
+
+  // For salespeople (reverse relation from DentalPractice.assignedSalespersonId)
+  assignedPractices DentalPractice[] @relation("PracticeSalesperson")
+
+  // For practice users (one practice per user)
+  practiceId String?
+  practice   DentalPractice? @relation("PracticeStaff", fields: [practiceId], references: [id])
+
+  // Relations
+  interactions       Interaction[]  @relation("UserInteractions")
+  appointmentsBooked Appointment[]  @relation("BookedBy")
+  leadsAssigned      Lead[]         @relation("LeadAssignee")
+  auditLogs          AuditLog[]     @relation("UserAuditLogs")
+  notifications      Notification[]
+
+  lastActiveAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([email])
+  @@index([role])
+}
+
+// ============================================
+// PRACTICE MANAGEMENT
+// ============================================
+
+model DentalPractice {
+  id   String @id @default(uuid())
+  name String
+
+  // Location
+  address  String
+  city     String
+  postcode String
+  country  String @default("UK")
+
+  // Contact
+  email   String
+  phone   String
+  website String?
+
+  // Business
+  subscriptionTier SubscriptionTier
+  status           PracticeStatus
+
+  // Onboarding & Qualification
+  onboardingStatus         OnboardingStatus @default(LEAD)
+  monthlyAdSpend           Float?
+  practiceManagementSystem String?
+  onboardingCompletedAt    DateTime?
+  onboardingNotes          String?          @db.Text
+
+  // Integration configs (one-to-one)
+  dentallyConfig DentallyConfig?
+  billingConfig  BillingConfig?
+
+  // Assignment (one-to-many: one primary salesperson per practice)
+  assignedSalespersonId String
+  assignedSalesperson   User   @relation("PracticeSalesperson", fields: [assignedSalespersonId], references: [id])
+
+  // AI Context (JSON field)
+  conversionPreferences Json @default("{}")
+
+  // Speed-to-lead SLA
+  speedToLeadSlaMinutes Int @default(5)
+
+  // Relations
+  treatmentTypes      TreatmentType[]
+  leads               Lead[]
+  campaigns           Campaign[]
+  appointments        Appointment[]
+  practiceUsers       User[]                   @relation("PracticeStaff")
+  notifications       Notification[]           @relation("PracticeNotifications")
+  followUpSequences   FollowUpSequence[]
+  invoices            Invoice[]
+  integrations        PracticeIntegration[]
+  metaAdAccounts      MetaAdAccount[]
+  leadAttributions    LeadAttribution[]
+  sequenceEnrollments LeadSequenceEnrollment[]
+  outboundMessages    OutboundMessage[]
+  invoiceLineItems    InvoiceLineItem[]
+  onboarding          PracticeOnboarding?
+
+  onboardedAt  DateTime?
+  lastActiveAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([status])
+  @@index([onboardingStatus])
+  @@index([assignedSalespersonId])
+}
+
+model TreatmentType {
+  id         String         @id @default(uuid())
+  practiceId String
+  practice   DentalPractice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  name                 String
+  category             CategoryType
+  averagePrice         Float
+  consultationDuration Int // minutes
+  isActive             Boolean      @default(true)
+
+  // Relations
+  appointments Appointment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([practiceId])
+  @@index([isActive])
+}
+
+// ============================================
+// DENTALLY PMS CONFIG (stub model)
+// ============================================
+
+model DentallyConfig {
+  id         String  @id @default(cuid())
+  practiceId String  @unique
+  connected  Boolean @default(false)
+  secretRef  String? // Reference to encrypted tokens in vault
+  syncError  String?
+
+  lastSyncedAt DateTime?
+  practice     DentalPractice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================
+// BILLING CONFIG
+// ============================================
+
+model BillingConfig {
+  id              String         @id @default(cuid())
+  practiceId      String         @unique
+  billingModel    BillingModel   @default(PER_APPOINTMENT)
+  billingTrigger  BillingTrigger @default(ON_APPOINTMENT_BOOKED)
+  pricePerBooking Float          @default(150)
+  currency        String         @default("GBP")
+
+  practice DentalPractice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================
+// LEAD MANAGEMENT
+// ============================================
+
+model Lead {
+  id         String         @id @default(uuid())
+  practiceId String
+  practice   DentalPractice @relation(fields: [practiceId], references: [id])
+
+  // Contact Info
+  name        String
+  email       String
+  phone       String
+  dateOfBirth DateTime?
+
+  // Lead Metadata
+  source     LeadSource
+  campaignId String?
+  campaign   Campaign?  @relation(fields: [campaignId], references: [id])
+  status     LeadStatus @default(ENQUIRY)
+
+  // Pre-qualification
+  qualificationScore Int?
+  qualificationNotes String?
+  promotedToLeadAt   DateTime?
+
+  // Treatment Interest
+  interestedTreatments String[]
+  estimatedBudget      Float?
+  urgency              String   @default("medium")
+
+  // Assignment
+  assignedSalespersonId String
+  assignedSalesperson   User   @relation("LeadAssignee", fields: [assignedSalespersonId], references: [id])
+
+  // Lifecycle
+  firstContactAt        DateTime?
+  speedToFirstContactMs Int?
+  qualifiedAt           DateTime?
+  appointmentBookedAt   DateTime?
+  lostAt                DateTime?
+  lostReason            LostReason?
+  lostNotes             String?
+
+  // Attribution (one-to-one)
+  attribution LeadAttribution?
+
+  // AI Context
+  painPoints          String[]
+  motivations         String[]
+  objections          String[]
+  personalityNotes    String?
+  conversationSummary String?
+
+  // Conversion
+  convertedToPatientId String?
+  convertedToPatient   Patient? @relation(fields: [convertedToPatientId], references: [id])
+
+  // Consent & Data Retention (GDPR)
+  recordingConsent       Boolean   @default(false)
+  recordingConsentDate   DateTime?
+  recordingConsentMethod String?
+  dataRetentionUntil     DateTime?
+
+  // Relations
+  interactions        Interaction[]
+  appointments        Appointment[]
+  aiTrainingContexts  AITrainingContext[]
+  sequenceEnrollments LeadSequenceEnrollment[]
+  notifications       Notification[]           @relation("LeadNotifications")
+  outboundMessages    OutboundMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([practiceId, email])
+  @@index([practiceId, status])
+  @@index([practiceId, createdAt])
+  @@index([practiceId, assignedSalespersonId])
+  @@index([assignedSalespersonId])
+  @@index([source])
+}
+
+// ============================================
+// PATIENT MANAGEMENT
+// ============================================
+
+model Patient {
+  id          String   @id @default(uuid())
+  name        String
+  dateOfBirth DateTime
+
+  email            String
+  phone            String?
+  insuranceStatus  InsuranceStatus
+  emergencyContact Json?
+  allergies        String[]
+
+  appointments   Appointment[]
+  leadsConverted Lead[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+}
+
+// ============================================
+// APPOINTMENT MANAGEMENT
+// ============================================
+
+model Appointment {
+  id String @id @default(uuid())
+
+  leadId     String?
+  lead       Lead?          @relation(fields: [leadId], references: [id])
+  patientId  String?
+  patient    Patient?       @relation(fields: [patientId], references: [id])
+  practiceId String
+  practice   DentalPractice @relation(fields: [practiceId], references: [id])
+
+  dateTime        DateTime
+  type            AppointmentType
+  status          AppointmentStatus
+  treatmentTypeId String
+  treatmentType   TreatmentType     @relation(fields: [treatmentTypeId], references: [id])
+
+  salespersonId String
+  bookedBy      User   @relation("BookedBy", fields: [salespersonId], references: [id])
+
+  // Payment
+  depositAmount Float?
+  depositPaid   Boolean   @default(false)
+  depositPaidAt DateTime?
+
+  // Preparation
+  patientPreparationNotes String?
+
+  // Outcome
+  showedUp                Boolean @default(false)
+  noShowReason            String?
+  consultationNotes       String?
+  convertedToTreatment    Boolean @default(false)
+  estimatedTreatmentValue Float?
+  actualTreatmentValue    Float?
+
+  // Confirmation
+  confirmedAt        DateTime?
+  confirmationSource AppointmentConfirmationSource?
+  confirmedByUserId  String?
+
+  // Dentally PMS Sync
+  dentallyAppointmentId String?   @unique
+  dentallySyncedAt      DateTime?
+  dentallySyncStatus    String?
+
+  // Reminders
+  reminderSentAt DateTime[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([practiceId])
+  @@index([leadId])
+  @@index([patientId])
+  @@index([dateTime])
+  @@index([status])
+}
+
+// ============================================
+// INTERACTION TRACKING (AI Context)
+// ============================================
+
+model Interaction {
+  id            String @id @default(uuid())
+  leadId        String
+  lead          Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  practiceId    String
+  salespersonId String
+  salesperson   User   @relation("UserInteractions", fields: [salespersonId], references: [id])
+
+  type InteractionType
+
+  // Content
+  subject String?
+  body    String?
+
+  // Call Specific
+  callDuration     Int?
+  callRecordingUrl String?
+  callTranscript   String? @db.Text
+
+  // AI Insights
+  aiSummary          String?  @db.Text
+  sentimentScore     Float?
+  nextBestAction     String?
+  keyTopicsDiscussed String[]
+
+  // Metadata
+  metadata Json @default("{}")
+
+  // Relations
+  aiTrainingContexts AITrainingContext[]
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId])
+  @@index([practiceId])
+  @@index([salespersonId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+// ============================================
+// CAMPAIGN TRACKING
+// ============================================
+
+model Campaign {
+  id         String         @id @default(uuid())
+  practiceId String
+  practice   DentalPractice @relation(fields: [practiceId], references: [id])
+
+  name            String
+  platform        CampaignPlatform
+  targetTreatment String
+
+  budget Float
+  spend  Float          @default(0)
+  status CampaignStatus
+
+  // Metrics (auto-populated from Meta Marketing API)
+  impressions Int   @default(0)
+  clicks      Int   @default(0)
+  leads       Int   @default(0)
+  costPerLead Float @default(0)
+  ctr         Float @default(0)
+  cpc         Float @default(0)
+
+  // Meta API Sync
+  metaCampaignId   String?         @unique
+  metaAdSetId      String?
+  metaAccountId    String?
+  metaLastSyncedAt DateTime?
+  metaSyncStatus   MetaSyncStatus?
+  metaSyncError    String?
+
+  // Creative
+  adCreativeUrls String[]
+  landingPageUrl String?
+
+  // Relations
+  leadsGenerated Lead[]
+
+  startDate DateTime
+  endDate   DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([practiceId])
+  @@index([status])
+  @@index([metaCampaignId])
+}
+
+// ============================================
+// AI TRAINING DATA
+// ============================================
+
+model AITrainingContext {
+  id            String      @id @default(uuid())
+  interactionId String
+  interaction   Interaction @relation(fields: [interactionId], references: [id])
+  leadId        String
+  lead          Lead        @relation(fields: [leadId], references: [id])
+
+  leadStatus           LeadStatus
+  previousInteractions String[]
+  leadContext          String     @db.Text
+
+  actionTaken   InteractionType
+  actionDetails String          @db.Text
+
+  outcome         String
+  outcomeNotes    String     @db.Text
+  leadStatusAfter LeadStatus
+
+  whatWorked    String[]
+  whatDidntWork String[]
+  keyInsights   String   @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId])
+  @@index([outcome])
+}
+
+// ============================================
+// AUDIT LOGGING (GDPR Compliance)
+// ============================================
+
+model AuditLog {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation("UserAuditLogs", fields: [userId], references: [id])
+
+  action   String
+  resource String
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@index([resource])
+}
+
+// ============================================
+// WEBHOOK IDEMPOTENCY
+// ============================================
+
+model WebhookEvent {
+  id          String   @id @default(uuid())
+  eventId     String   @unique
+  provider    String
+  eventType   String
+  payload     Json
+  leadId      String?
+  processedAt DateTime @default(now())
+
+  @@index([provider, processedAt])
+  @@index([leadId])
+}
+
+// ============================================
+// INTEGRATIONS & ATTRIBUTION
+// ============================================
+
+model PracticeIntegration {
+  id         String            @id @default(cuid())
+  practiceId String
+  type       IntegrationType
+  status     IntegrationStatus @default(DISCONNECTED)
+
+  secretRef    String?
+  meta         Json?
+  lastSyncedAt DateTime?
+
+  practice DentalPractice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([practiceId, type])
+  @@index([type, status])
+}
+
+// Meta Ads object graph
+model MetaAdAccount {
+  id           String         @id @default(cuid())
+  practiceId   String
+  externalId   String
+  name         String?
+  currency     String?
+  timezone     String?
+  syncStatus   MetaSyncStatus @default(PENDING)
+  lastSyncedAt DateTime?
+
+  practice  DentalPractice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  campaigns MetaCampaign[]
+
+  @@unique([practiceId, externalId])
+  @@index([practiceId, lastSyncedAt])
+}
+
+model MetaCampaign {
+  id          String  @id @default(cuid())
+  practiceId  String
+  adAccountId String
+  externalId  String
+  name        String?
+  status      String?
+  objective   String?
+
+  adAccount MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  adSets    MetaAdSet[]
+
+  @@unique([adAccountId, externalId])
+  @@index([practiceId])
+}
+
+model MetaAdSet {
+  id         String  @id @default(cuid())
+  practiceId String
+  campaignId String
+  externalId String
+  name       String?
+  status     String?
+
+  campaign MetaCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  ads      MetaAd[]
+
+  @@unique([campaignId, externalId])
+  @@index([practiceId])
+}
+
+model MetaAd {
+  id         String  @id @default(cuid())
+  practiceId String
+  adSetId    String
+  externalId String
+  name       String?
+  status     String?
+  creativeId String?
+  leadFormId String?
+
+  adSet MetaAdSet @relation(fields: [adSetId], references: [id], onDelete: Cascade)
+
+  @@unique([adSetId, externalId])
+  @@index([practiceId])
+}
+
+// Per-lead attribution chain
+model LeadAttribution {
+  id         String @id @default(cuid())
+  practiceId String
+  leadId     String @unique
+
+  metaLeadgenId  String?
+  metaFormId     String?
+  metaCampaignId String?
+  metaAdSetId    String?
+  metaAdId       String?
+  metaCreativeId String?
+  metaClickId    String?
+
+  raw Json?
+
+  createdAt DateTime @default(now())
+
+  lead     Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  practice DentalPractice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  @@index([practiceId, createdAt])
+  @@index([metaCampaignId])
+  @@index([metaAdId])
+}
+
+// ============================================
+// REALTIME NOTIFICATIONS
+// ============================================
+
+model Notification {
+  id            String           @id @default(cuid())
+  userId        String
+  practiceId    String?
+  type          NotificationType
+  title         String
+  body          String?
+  leadId        String?
+  appointmentId String?
+  createdAt     DateTime         @default(now())
+  readAt        DateTime?
+
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  practice DentalPractice? @relation("PracticeNotifications", fields: [practiceId], references: [id], onDelete: Cascade)
+  lead     Lead?           @relation("LeadNotifications", fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([practiceId, createdAt])
+  @@index([type, createdAt])
+}
+
+// ============================================
+// FOLLOW-UP SEQUENCES (automation)
+// ============================================
+
+model FollowUpSequence {
+  id         String          @id @default(cuid())
+  practiceId String
+  name       String
+  status     SequenceStatus  @default(ACTIVE)
+  trigger    SequenceTrigger
+  isDefault  Boolean         @default(false)
+
+  steps       FollowUpSequenceStep[]
+  enrollments LeadSequenceEnrollment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  practice DentalPractice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  @@unique([practiceId, name])
+  @@index([practiceId, status])
+}
+
+model FollowUpSequenceStep {
+  id          String           @id @default(cuid())
+  sequenceId  String
+  order       Int
+  type        SequenceStepType
+  waitMinutes Int?
+  template    String?
+  subject     String?
+  taskTitle   String?
+
+  sequence FollowUpSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+
+  @@unique([sequenceId, order])
+}
+
+model LeadSequenceEnrollment {
+  id          String         @id @default(cuid())
+  practiceId  String
+  leadId      String
+  sequenceId  String
+  status      SequenceStatus @default(ACTIVE)
+  currentStep Int            @default(0)
+  nextRunAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lead     Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  sequence FollowUpSequence  @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  practice DentalPractice    @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  outbound OutboundMessage[]
+
+  @@unique([leadId, sequenceId])
+  @@index([practiceId, status, nextRunAt])
+}
+
+model OutboundMessage {
+  id                String           @id @default(cuid())
+  practiceId        String
+  leadId            String
+  enrollmentId      String?
+  channel           SequenceStepType
+  providerMessageId String?
+  to                String
+  subject           String?
+  body              String
+  status            String
+  error             String?
+  createdAt         DateTime         @default(now())
+
+  practice   DentalPractice          @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  lead       Lead                    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  enrollment LeadSequenceEnrollment? @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+
+  @@index([practiceId, createdAt])
+  @@index([leadId, createdAt])
+}
+
+// ============================================
+// BILLING (performance-based per appointment)
+// ============================================
+
+model Invoice {
+  id         String        @id @default(cuid())
+  practiceId String
+  status     InvoiceStatus @default(DRAFT)
+  currency   String        @default("GBP")
+
+  periodStart DateTime
+  periodEnd   DateTime
+
+  subtotal Float @default(0)
+  tax      Float @default(0)
+  total    Float @default(0)
+
+  sentAt    DateTime?
+  paidAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  practice DentalPractice    @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  items    InvoiceLineItem[]
+
+  @@index([practiceId, periodStart, periodEnd])
+  @@index([status, createdAt])
+}
+
+model InvoiceLineItem {
+  id            String              @id @default(cuid())
+  invoiceId     String
+  practiceId    String
+  type          InvoiceLineItemType
+  leadId        String?
+  appointmentId String?
+
+  description String
+  unitPrice   Float
+  quantity    Int    @default(1)
+  amount      Float
+
+  createdAt DateTime @default(now())
+
+  invoice  Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  practice DentalPractice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  @@unique([appointmentId, type])
+  @@index([invoiceId])
+  @@index([practiceId, type])
+}
+
+// ============================================
+// PRACTICE ONBOARDING
+// ============================================
+
+model PracticeOnboarding {
+  id         String           @id @default(cuid())
+  practiceId String           @unique
+  status     OnboardingStatus @default(LEAD)
+
+  declaredMonthlyMetaSpend Float?
+  minimumSpendMet          Boolean @default(false)
+
+  dentallyConnectedAt  DateTime?
+  metaConnectedAt      DateTime?
+  messagingConnectedAt DateTime?
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  practice DentalPractice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+}
