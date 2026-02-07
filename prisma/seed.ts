@@ -102,14 +102,14 @@ async function main() {
   );
 
   // 2. Create matching Prisma user with SAME id (idempotent upsert)
+  // The bootstrapped admin must change their password on first login
   console.log("Creating admin database record...");
-  const admin = await upsertPrismaUser(
-    adminAuth.id,
-    adminAuth.email!,
-    "Admin User (Dev)",
-    "ADMIN"
-  );
-  console.log("Admin user created/updated:", admin.email);
+  const admin = await prisma.user.upsert({
+    where: { id: adminAuth.id },
+    update: { email: adminAuth.email!, fullName: "Admin User (Dev)", role: "ADMIN", mustChangePassword: true },
+    create: { id: adminAuth.id, email: adminAuth.email!, fullName: "Admin User (Dev)", role: "ADMIN", mustChangePassword: true },
+  });
+  console.log("Admin user created/updated:", admin.email, "(mustChangePassword: true)");
 
   // 3. Create or reuse salesperson
   console.log("Creating salesperson auth user...");

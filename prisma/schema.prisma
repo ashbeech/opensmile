@@ -224,10 +224,11 @@ enum IntegrationStatus {
 // ============================================
 
 model User {
-  id       String   @id // CRITICAL: Set to Supabase auth.uid(), NEVER @default(uuid())
-  email    String   @unique
-  fullName String
-  role     UserRole
+  id                 String   @id // CRITICAL: Set to Supabase auth.uid(), NEVER @default(uuid())
+  email              String   @unique
+  fullName           String
+  role               UserRole
+  mustChangePassword Boolean  @default(false)
 
   // For salespeople (reverse relation from DentalPractice.assignedSalespersonId)
   assignedPractices DentalPractice[] @relation("PracticeSalesperson")

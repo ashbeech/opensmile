@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 
 export default async function PortalLayout({
@@ -14,6 +15,16 @@ export default async function PortalLayout({
 
   if (!user) {
     redirect("/login");
+  }
+
+  // Check if user must change their password
+  const dbUser = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { mustChangePassword: true },
+  });
+
+  if (dbUser?.mustChangePassword) {
+    redirect("/change-password");
   }
 
   return (

@@ -26,15 +26,15 @@ export async function createContext() {
       user = authUser;
     }
 
-    if (authUser) {
+    if (user) {
       // Find matching Prisma user - MUST match auth.uid()
       dbUser = await prisma.user.findUnique({
-        where: { id: authUser.id },
+        where: { id: user.id },
       });
 
       // On mismatch: REJECT, never auto-create
       if (!dbUser) {
-        console.error(`Auth user ${authUser.id} has no matching Prisma record`);
+        console.error(`Auth user ${user.id} has no matching Prisma record`);
         // Don't throw here - let the protectedProcedure middleware handle it
         // by checking user but null dbUser
         user = null;
